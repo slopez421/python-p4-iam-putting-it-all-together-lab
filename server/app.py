@@ -7,20 +7,82 @@ from sqlalchemy.exc import IntegrityError
 from config import app, db, api
 from models import User, Recipe
 
+@app.before_request
+def check_if_logged_in():
+    if request.endpoint not in ['check_session', 'signup', 'login'] and (not session['user_id']):
+        return {'error': 'Unauthorized.'}, 401
+
 class Signup(Resource):
-    pass
+    def post(self):
+        
+        username = request.get_json().get('username')
+        password = request.get_json()['password']
+        image_url = request.get_json()['image_url']
+        bio = request.get_json()['bio']
+
+        user = User(
+                username=username,
+                image_url=image_url,
+                bio=bio
+                )
+        user.password_hash = password
+
+        try:
+            db.session.add(user)
+            db.session.commit()
+
+            session['user_id'] = user.id
+            return user.to_dict(), 201
+        except:
+            return {'error': 'Failure to sign up.'}, 422
+
 
 class CheckSession(Resource):
-    pass
+    def get(self):
+        if session.get('user_id'):
+            user = db.session.query(User).filter(User.id == session['user_id']).first()
+            return user.to_dict(), 200
+        return {'error': 'Unauthorized.'}, 401
 
 class Login(Resource):
-    pass
+    def post(self):
+        username = request.get_json()['username']
+        password = request.get_json()['password']
+
+        user = User.query.filter(User.username == username).first()
+        if (user) and (user.authenticate(password)):
+
+            session['user_id'] = user.id
+            return user.to_dict(), 200
+        
+        return {'error': 'Invalid username or password.'}, 401
 
 class Logout(Resource):
-    pass
+    def delete(self):
+            session['user_id'] = None
+            return {}, 204
 
 class RecipeIndex(Resource):
-    pass
+    def get(self):
+            user = User.query.filter(User.id == session['user_id']).first()
+            return [recipe.to_dict() for recipe in user.recipes], 200
+    
+    def post(self): 
+        title = request.get_json()['title']
+        minutes_to_complete = request.get_json()['minutes_to_complete']
+        instructions = request.get_json()['instructions']
+
+        try:
+            new_recipe = Recipe(title = title, 
+                            minutes_to_complete = minutes_to_complete, 
+                            instructions = instructions)
+            new_recipe.user_id = session['user_id']
+            db.session.add(new_recipe)
+            db.session.commit()
+            return new_recipe.to_dict(), 201
+        except: 
+            return {'error': '422 Unprocessable Entity'}, 422
+        
 
 api.add_resource(Signup, '/signup', endpoint='signup')
 api.add_resource(CheckSession, '/check_session', endpoint='check_session')
